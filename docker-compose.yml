@@ -1,0 +1,8 @@
+services:
+  websocket:
+    build: .
+    env_file: .env.docker
+    ports:
+      - "8765:8765"
+    volumes:
+      - ../retreival_kite/data/data:/data:ro
