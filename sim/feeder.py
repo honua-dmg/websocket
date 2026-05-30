@@ -29,8 +29,8 @@ def load_and_validate_csv(csv_path: str) -> tuple[list[str], list[dict]]:
 
     with open(path, newline="") as f:
         reader = csv.DictReader(f)
-        rows = list(reader)
         fieldnames = list(reader.fieldnames or [])
+        rows = list(reader)
 
     if not fieldnames:
         print(f"[FEEDER] ERROR: CSV has no header: {csv_path}", file=sys.stderr)
