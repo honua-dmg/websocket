@@ -1,7 +1,6 @@
 import asyncio
 import json
 import logging
-import sys
 from typing import AsyncIterator
 
 import redis.asyncio as aioredis
@@ -62,7 +61,7 @@ async def tail_stream(symbol: str, last_id: str) -> AsyncIterator[dict]:
 
         if not results:
             if not waiting_logged:
-                print(f"Waiting for stream '{symbol}'...", file=sys.stderr)
+                logger.info("Waiting for stream '%s'...", symbol)
                 waiting_logged = True
             continue
 

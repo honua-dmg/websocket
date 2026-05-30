@@ -11,6 +11,7 @@ def reset_redis_client():
     redis_consumer._client = None
 
 
+@pytest.mark.asyncio
 async def test_ping_with_retry_raises_connection_error_after_all_attempts():
     mock_client = AsyncMock()
     mock_client.ping.side_effect = Exception("connection refused")
@@ -24,6 +25,7 @@ async def test_ping_with_retry_raises_connection_error_after_all_attempts():
     assert mock_client.ping.call_count == 3
 
 
+@pytest.mark.asyncio
 async def test_ping_with_retry_succeeds_on_third_attempt():
     mock_client = AsyncMock()
     mock_client.ping.side_effect = [Exception("refused"), Exception("refused"), None]
@@ -37,6 +39,7 @@ async def test_ping_with_retry_succeeds_on_third_attempt():
     assert mock_client.ping.call_count == 3
 
 
+@pytest.mark.asyncio
 async def test_get_stream_tip_returns_zero_for_empty_stream():
     mock_client = AsyncMock()
     mock_client.ping.return_value = True
@@ -49,6 +52,7 @@ async def test_get_stream_tip_returns_zero_for_empty_stream():
     assert tip == "0"
 
 
+@pytest.mark.asyncio
 async def test_get_stream_tip_returns_latest_id():
     mock_client = AsyncMock()
     mock_client.ping.return_value = True
@@ -61,6 +65,7 @@ async def test_get_stream_tip_returns_latest_id():
     assert tip == "1700000000000-0"
 
 
+@pytest.mark.asyncio
 async def test_tail_stream_yields_parsed_json():
     mock_client = AsyncMock()
     mock_client.ping.return_value = True
@@ -80,7 +85,9 @@ async def test_tail_stream_yields_parsed_json():
     assert results == [{"price": "100", "volume": "500"}, {"price": "101", "volume": "600"}]
 
 
-async def test_tail_stream_logs_waiting_when_stream_empty(capsys):
+@pytest.mark.asyncio
+async def test_tail_stream_logs_waiting_when_stream_empty(caplog):
+    import logging
     mock_client = AsyncMock()
     mock_client.ping.return_value = True
     # First call empty, second call has data
@@ -91,8 +98,8 @@ async def test_tail_stream_logs_waiting_when_stream_empty(capsys):
 
     with patch("redis_consumer.get_client", return_value=mock_client):
         from redis_consumer import tail_stream
-        async for _ in tail_stream("IBM", "0"):
-            break
+        with caplog.at_level(logging.INFO, logger="redis_consumer"):
+            async for _ in tail_stream("IBM", "0"):
+                break
 
-    captured = capsys.readouterr()
-    assert "Waiting for stream" in captured.err or "Waiting for stream" in captured.out
+    assert any("Waiting for stream" in r.message for r in caplog.records)
