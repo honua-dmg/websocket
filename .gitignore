@@ -1,3 +1,4 @@
 .env.docker
 .env.local
 CODEBASE.md
+sim/output/*.csv
