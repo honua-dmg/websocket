@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Skill(brainstorming)",
+      "Bash(mkdir *)",
+      "Skill(writing-plans)",
+      "Skill(subagent-driven-development)"
+    ]
+  }
+}
