@@ -1,0 +1,5 @@
+fastapi
+uvicorn[standard]
+redis[asyncio]
+aiofiles
+python-dotenv
