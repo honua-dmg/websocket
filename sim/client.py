@@ -16,7 +16,7 @@ import json
 import sys
 from pathlib import Path
 
-import websockets
+from websockets.asyncio.client import connect as ws_connect, ClientConnection
 import websockets.exceptions
 
 
@@ -71,13 +71,13 @@ def run_integrity_check(original_path: str, received_rows: list[dict]) -> bool:
     return passed
 
 
-async def connect_with_retry(uri: str, timeout: int) -> websockets.WebSocketClientProtocol:
+async def connect_with_retry(uri: str, timeout: int) -> ClientConnection:
     printed_waiting = False
     loop = asyncio.get_event_loop()
     deadline = loop.time() + timeout
     while True:
         try:
-            return await websockets.connect(uri)
+            return await ws_connect(uri)
         except (OSError, websockets.exceptions.WebSocketException):
             if loop.time() >= deadline:
                 print(
