@@ -73,7 +73,7 @@ def run_integrity_check(original_path: str, received_rows: list[dict]) -> bool:
 
 async def connect_with_retry(uri: str, timeout: int) -> ClientConnection:
     printed_waiting = False
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     deadline = loop.time() + timeout
     while True:
         try:
