@@ -7,6 +7,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
 from csv_reader import stream_csv
 from redis_consumer import get_stream_tip, tail_stream
+from transform import transform_tick
 
 app = FastAPI()
 
@@ -67,7 +68,7 @@ async def websocket_endpoint(websocket: WebSocket):
         else:
             bookmark = await get_stream_tip(symbol)
         async for tick in tail_stream(symbol, last_id=bookmark):
-            await websocket.send_json({"source": "live", "data": tick})
+            await websocket.send_json({"source": "live", "data": transform_tick(tick)})
 
     except WebSocketDisconnect:
         pass
