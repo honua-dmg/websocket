@@ -159,3 +159,8 @@ Original CSV (200 rows)
 - Multi-symbol simulation (one symbol per testbench run)
 - Persistent Redis data between runs (containers are ephemeral)
 - CI integration (though exit code 1 on integrity failure makes it possible later)
+
+
+python sim/feeder.py /Users/gurusai/data/kite/NSE/NIFTY/2026-05-18.csv NSE:NIFTY
+
+python sim/client.py NSE:NIFTY --original /Users/gurusai/data/kite/NSE/NIFTY/2026-05-18.csv

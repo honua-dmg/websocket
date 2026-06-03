@@ -5,4 +5,4 @@ services:
     ports:
       - "8765:8765"
     volumes:
-      - ../retreival_kite/data/data:/data:ro
+      - ../retreival_kite/data/data:/data
