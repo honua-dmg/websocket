@@ -5,7 +5,7 @@ services:
     ports:
       - "8765:8765"
     volumes:
-      - ../retreival_kite/data/data:/data
+      - ${DATA_HOST_PATH:-../retreival_kite/data/data}:/data
     restart: unless-stopped
     networks:
       - retreival_kite_app-network
