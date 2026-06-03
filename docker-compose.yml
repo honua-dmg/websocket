@@ -6,3 +6,10 @@ services:
       - "8765:8765"
     volumes:
       - ../retreival_kite/data/data:/data
+    restart: unless-stopped
+    networks:
+      - retreival_kite_app-network
+
+networks:
+  retreival_kite_app-network:
+    external: true

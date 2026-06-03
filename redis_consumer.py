@@ -46,8 +46,26 @@ async def get_stream_tip(symbol: str) -> str:
     return entries[0][0] if entries else "0"
 
 
+async def _wait_for_redis() -> aioredis.Redis:
+    client = get_client()
+    delay = 1.0
+    attempt = 0
+    while True:
+        try:
+            await client.ping()
+            return client
+        except Exception as exc:
+            attempt += 1
+            logger.warning(
+                "Redis unavailable (attempt %d), retrying in %.0fs: %s",
+                attempt, delay, exc,
+            )
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, 30.0)
+
+
 async def tail_stream(symbol: str, last_id: str) -> AsyncIterator[dict]:
-    client = await _ping_with_retry()
+    client = await _wait_for_redis()
     current_id = last_id
     waiting_logged = False
 
@@ -55,8 +73,8 @@ async def tail_stream(symbol: str, last_id: str) -> AsyncIterator[dict]:
         try:
             results = await client.xread({symbol: current_id}, count=100, block=100)
         except Exception as exc:
-            logger.warning("Redis read error, attempting reconnect: %s", exc)
-            client = await _ping_with_retry()
+            logger.warning("Redis went away, waiting for it to come back: %s", exc)
+            client = await _wait_for_redis()
             continue
 
         if not results:
