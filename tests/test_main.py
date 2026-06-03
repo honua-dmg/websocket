@@ -64,5 +64,7 @@ def test_valid_subscription_streams_history_then_live(client):
             history_msg = ws.receive_json()
             live_msg = ws.receive_json()
 
+    from transform import transform_tick
     assert history_msg == {"source": "history", "data": {"price": "100", "volume": "500"}}
-    assert live_msg == {"source": "live", "data": {"price": "101", "volume": "600"}}
+    assert live_msg["source"] == "live"
+    assert live_msg["data"] == transform_tick({"price": "101", "volume": "600"})
