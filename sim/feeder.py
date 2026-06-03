@@ -12,8 +12,9 @@ import asyncio
 import csv
 import json
 import sys
-from datetime import date
+from datetime import datetime, timezone
 from pathlib import Path
+import time
 
 import redis.asyncio as aioredis
 
@@ -47,7 +48,7 @@ def load_and_validate_csv(csv_path: str) -> tuple[list[str], list[dict]]:
 
 
 def write_history(exchange: str, symbol: str, fieldnames: list[str], rows: list[dict]) -> Path:
-    today = date.today().isoformat()
+    today = datetime.now(timezone.utc).date().isoformat()
     out_dir = Path(DATA_ROOT) / exchange / symbol
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / f"{today}.csv"
@@ -57,6 +58,7 @@ def write_history(exchange: str, symbol: str, fieldnames: list[str], rows: list[
         writer.writeheader()
         writer.writerows(rows)
 
+    print(f"[FEEDER] Wrote {len(rows)} history rows to {out_path.resolve()}")
     return out_path
 
 
@@ -86,16 +88,32 @@ async def connect_redis(redis_url: str, max_attempts: int = 3) -> aioredis.Redis
 
 
 async def stream_to_redis(
-    client: aioredis.Redis, symbol: str, rows: list[dict], interval: float
+    client: aioredis.Redis,
+    symbol: str,
+    rows: list[dict],
+    interval: float,
+    history_path: Path | None = None,
+    fieldnames: list[str] | None = None,
 ) -> int:
     sent = 0
     total = len(rows)
     try:
-        for row in rows:
-            await client.xadd(symbol, {"data": json.dumps(row)})
-            sent += 1
-            print(f"[FEEDER] row {sent}/{total} → {symbol}")
-            await asyncio.sleep(interval)
+        if history_path is not None:
+            with open(history_path, "a", newline="") as f:
+                writer = csv.DictWriter(f, fieldnames=fieldnames)
+                for row in rows:
+                    msg_id = await client.xadd(symbol, {"data": json.dumps(row)})
+                    row["stream_offset"] = msg_id
+                    writer.writerow(row)
+                    sent += 1
+                    print(f"[FEEDER] row {sent}/{total} → {symbol} (id={msg_id})")
+                    await asyncio.sleep(interval)
+        else:
+            for row in rows:
+                await client.xadd(symbol, {"data": json.dumps(row)})
+                sent += 1
+                print(f"[FEEDER] row {sent}/{total} → {symbol}")
+                await asyncio.sleep(interval)
     except KeyboardInterrupt:
         pass
     return sent
@@ -105,7 +123,7 @@ async def main() -> None:
     parser = argparse.ArgumentParser(description="Split CSV and stream live half to Redis")
     parser.add_argument("csv_path", help="Path to the source CSV file")
     parser.add_argument("stock", help="Stock in EXCHANGE:SYMBOL format")
-    parser.add_argument("--interval", type=float, default=0.1, help="Seconds between rows (default: 0.1)")
+    parser.add_argument("--interval", type=float, default=0.01, help="Seconds between rows (default: 0.1)")
     parser.add_argument("--redis-url", default="redis://localhost:6379")
     args = parser.parse_args()
 
@@ -115,18 +133,20 @@ async def main() -> None:
 
     exchange, symbol = args.stock.split(":", 1)
     fieldnames, rows = load_and_validate_csv(args.csv_path)
-    mid = len(rows) // 2
+    mid = len(rows) // 4  # 25% history, 75% live for more interesting demo
     history_rows, live_rows = rows[:mid], rows[mid:]
 
     print(f"[FEEDER] {len(rows)} total rows → {len(history_rows)} history, {len(live_rows)} live")
 
     history_path = write_history(exchange, symbol, fieldnames, history_rows)
     print(f"[FEEDER] History written to {history_path}")
-
+    time.sleep(5)  # give user time to see history output before streaming live
     client = await connect_redis(args.redis_url)
     print(f"[FEEDER] Connected to Redis, streaming {len(live_rows)} rows to '{symbol}'...")
 
-    sent = await stream_to_redis(client, symbol, live_rows, args.interval)
+    sent = await stream_to_redis(
+        client, symbol, live_rows, args.interval, history_path, fieldnames
+    )
     print(f"[FEEDER] Done — {sent}/{len(live_rows)} rows sent to Redis stream '{symbol}'")
     await client.aclose()
 

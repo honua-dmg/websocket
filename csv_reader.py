@@ -2,7 +2,7 @@ import csv
 import io
 import os
 import sys
-from datetime import date
+from datetime import datetime, timezone, timedelta
 from typing import AsyncIterator
 
 import aiofiles
@@ -11,9 +11,10 @@ from config import DATA_ROOT
 
 
 async def stream_csv(exchange: str, symbol: str, day: str | None = None) -> AsyncIterator[dict]:
-    day = day or date.today().isoformat()
+    IST = timezone(timedelta(hours=5, minutes=30))
+    day = day or datetime.now(IST).date().isoformat()
     path = f"{DATA_ROOT}/{exchange}/{symbol}/{day}.csv"
-
+    print(f"[csv_reader] streaming history from {path}", file=sys.stderr)
     if not os.path.exists(path):
         raise FileNotFoundError(f"CSV not found: {os.path.abspath(path)}")
 

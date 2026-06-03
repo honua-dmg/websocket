@@ -78,6 +78,29 @@ async def test_stream_to_redis_sends_all_rows():
     assert json.loads(calls[1].args[1]["data"]) == rows[1]
 
 
+async def test_stream_to_redis_appends_rows_to_history_csv(tmp_path):
+    mock_client = AsyncMock()
+    history_path = tmp_path / "history.csv"
+    history_path.write_text("price,volume\n90,100\n")
+    rows = [{"price": "100", "volume": "200"}, {"price": "150", "volume": "300"}]
+
+    from sim.feeder import stream_to_redis
+    with patch("asyncio.sleep", new_callable=AsyncMock):
+        sent = await stream_to_redis(
+            mock_client,
+            "IBM",
+            rows,
+            interval=0.0,
+            history_path=history_path,
+            fieldnames=["price", "volume"],
+        )
+
+    assert sent == 2
+    with open(history_path, newline="") as f:
+        written = list(csv.DictReader(f))
+    assert written == [{"price": "90", "volume": "100"}, *rows]
+
+
 async def test_stream_to_redis_returns_partial_count_on_interrupt():
     mock_client = AsyncMock()
     # Raise KeyboardInterrupt on second xadd

@@ -1,4 +1,5 @@
 import asyncio
+from datetime import datetime, timezone
 import json
 import os
 
@@ -49,15 +50,22 @@ async def websocket_endpoint(websocket: WebSocket):
             return
 
         exchange, symbol = stock.split(":", 1)
-
-        bookmark = await get_stream_tip(symbol)
-
+        await websocket.send_json({"message": f"subscribed to {stock}, streaming history..."})
+        
+        last_history_row = None
         try:
             async for row in stream_csv(exchange, symbol):
                 await websocket.send_json({"source": "history", "data": row})
+                last_history_row = row
         except FileNotFoundError:
-            await websocket.send_json({"error": f"no CSV history for {stock} today"})
+            await websocket.send_json({"error": f"no CSV history for {stock} for the day: {datetime.now(timezone.utc).date().isoformat()}"})
 
+        if last_history_row and "stream_offset" in last_history_row:
+            bookmark = last_history_row["stream_offset"]
+            with open('/data/logs.csv', 'a') as f:
+                f.write(f"{datetime.now(timezone.utc).isoformat()},{exchange},{symbol},{bookmark},{last_history_row.get('timestamp', 'N/A')}\n")
+        else:
+            bookmark = await get_stream_tip(symbol)
         async for tick in tail_stream(symbol, last_id=bookmark):
             await websocket.send_json({"source": "live", "data": tick})
 

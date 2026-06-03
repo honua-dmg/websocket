@@ -105,7 +105,8 @@ async def run(args: argparse.Namespace) -> None:
     live_count = 0
     received_rows: list[dict] = []
     fieldnames: list[str] | None = None
-
+    f = None
+    writer = None
     try:
         await ws.send(json.dumps({"stock": args.stock}))
 
@@ -121,23 +122,31 @@ async def run(args: argparse.Namespace) -> None:
 
             if fieldnames is None and data:
                 fieldnames = list(data.keys())
+                # open file and prepare writer once we know the columns
+                f = open(sample_path, "w", newline="")
+                writer = csv.DictWriter(f, fieldnames=fieldnames)
+                writer.writeheader()
 
             if source == "history":
                 history_count += 1
                 print(f"[HISTORY] {data}")
+                
             elif source == "live":
                 live_count += 1
                 print(f"[LIVE]    {data}")
 
             received_rows.append(data)
-
+            if writer is not None:
+                writer.writerow(data)
+        
     except websockets.exceptions.ConnectionClosed:
         pass
     except KeyboardInterrupt:
         pass
     finally:
         await ws.close()
-
+        if f is not None:
+            f.close()
     print(f"\n[CLIENT] Received {history_count} history rows, {live_count} live ticks")
 
     if received_rows and fieldnames:

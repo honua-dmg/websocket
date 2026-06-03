@@ -60,6 +60,7 @@ def test_valid_subscription_streams_history_then_live(client):
          patch("main.get_stream_tip", new_callable=AsyncMock, return_value="0"):
         with client.websocket_connect("/ws") as ws:
             ws.send_json({"stock": "NYSE:IBM"})
+            ws.receive_json()  # subscription confirmation
             history_msg = ws.receive_json()
             live_msg = ws.receive_json()
 

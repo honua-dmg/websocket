@@ -42,11 +42,13 @@ if docker ps --format '{{.Names}}' | grep -q "^${SERVER_CONTAINER}$"; then
 fi
 
 info "Starting WebSocket server container..."
+mkdir -p "$PROJECT_DIR/data"
 docker run -d \
     --name "$SERVER_CONTAINER" \
     --env-file "$PROJECT_DIR/.env.docker" \
     -p "${SERVER_PORT}:${SERVER_PORT}" \
     --add-host=host.docker.internal:host-gateway \
+    -v "$PROJECT_DIR/data:/data" \
     "$SERVER_CONTAINER" >/dev/null
 
 info "Waiting for WebSocket server on port ${SERVER_PORT}..."
