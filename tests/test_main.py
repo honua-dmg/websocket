@@ -65,6 +65,22 @@ def test_valid_subscription_streams_history_then_live(client):
             live_msg = ws.receive_json()
 
     from transform import transform_tick
+
+    history_client_id = history_msg.pop("client_id")
+    live_client_id = live_msg.pop("client_id")
+    assert isinstance(history_client_id, str) and history_client_id
+    assert history_client_id == live_client_id
+
     assert history_msg == {"source": "history", "data": {"price": "100", "volume": "500"}}
     assert live_msg["source"] == "live"
     assert live_msg["data"] == transform_tick({"price": "101", "volume": "600"})
+
+
+def test_client_id_unique_per_connection(client):
+    with client.websocket_connect("/ws") as ws1:
+        ws1.send_text("not-json")
+        data1 = ws1.receive_json()
+    with client.websocket_connect("/ws") as ws2:
+        ws2.send_text("not-json")
+        data2 = ws2.receive_json()
+    assert data1["client_id"] != data2["client_id"]
