@@ -1,3 +1,4 @@
+import asyncio
 import json
 import pytest
 from unittest.mock import AsyncMock, patch
@@ -84,3 +85,27 @@ def test_client_id_unique_per_connection(client):
         ws2.send_text("not-json")
         data2 = ws2.receive_json()
     assert data1["client_id"] != data2["client_id"]
+
+
+def test_disconnect_during_live_stream_is_reaped_promptly(client):
+    import main
+
+    async def mock_stream_csv(exchange, symbol, day=None):
+        return
+        yield  # pragma: no cover
+
+    async def mock_tail_stream(symbol, last_id):
+        for _ in range(50):
+            await asyncio.sleep(0.01)
+            yield {"price": "101", "volume": "600"}
+
+    with patch("main.stream_csv", mock_stream_csv), \
+         patch("main.tail_stream", mock_tail_stream), \
+         patch("main.get_stream_tip", new_callable=AsyncMock, return_value="0"):
+        with client.websocket_connect("/ws") as ws:
+            ws.send_json({"stock": "NYSE:IBM"})
+            ws.receive_json()  # subscription confirmation
+            ws.receive_json()  # first live tick
+            # close from the client side while ticks are still being produced
+
+        assert len(main.active_clients) == 0
