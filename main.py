@@ -65,22 +65,43 @@ async def websocket_endpoint(websocket: WebSocket):
             exchange, symbol = stock.split(":", 1)
             await send({"message": f"subscribed to {stock}, streaming history..."})
 
-            last_history_row = None
-            try:
-                async for row in stream_csv(exchange, symbol):
-                    await send({"source": "history", "data": row})
-                    last_history_row = row
-            except FileNotFoundError:
-                await send({"error": f"no CSV history for {stock} for the day: {datetime.now(timezone.utc).date().isoformat()}"})
+            async def stream_data() -> None:
+                last_history_row = None
+                try:
+                    async for row in stream_csv(exchange, symbol):
+                        await send({"source": "history", "data": row})
+                        last_history_row = row
+                except FileNotFoundError:
+                    await send({"error": f"no CSV history for {stock} for the day: {datetime.now(timezone.utc).date().isoformat()}"})
 
-            if last_history_row and "stream_offset" in last_history_row:
-                bookmark = last_history_row["stream_offset"]
-                with open('/data/logs.csv', 'a') as f:
-                    f.write(f"{datetime.now(timezone.utc).isoformat()},{exchange},{symbol},{bookmark},{last_history_row.get('timestamp', 'N/A')}\n")
-            else:
-                bookmark = await get_stream_tip(symbol)
-            async for tick in tail_stream(symbol, last_id=bookmark):
-                await send({"source": "live", "data": transform_tick(tick)})
+                if last_history_row and "stream_offset" in last_history_row:
+                    bookmark = last_history_row["stream_offset"]
+                    with open('/data/logs.csv', 'a') as f:
+                        f.write(f"{datetime.now(timezone.utc).isoformat()},{exchange},{symbol},{bookmark},{last_history_row.get('timestamp', 'N/A')}\n")
+                else:
+                    bookmark = await get_stream_tip(symbol)
+                async for tick in tail_stream(symbol, last_id=bookmark):
+                    await send({"source": "live", "data": transform_tick(tick)})
+
+            async def watch_disconnect() -> None:
+                while True:
+                    message = await websocket.receive()
+                    if message["type"] == "websocket.disconnect":
+                        return
+
+            stream_task = asyncio.create_task(stream_data())
+            watch_task = asyncio.create_task(watch_disconnect())
+            done, pending = await asyncio.wait(
+                {stream_task, watch_task}, return_when=asyncio.FIRST_COMPLETED
+            )
+            for task in pending:
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+            for task in done:
+                task.result()
 
         except WebSocketDisconnect:
             pass
