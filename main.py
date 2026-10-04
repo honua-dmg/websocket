@@ -35,6 +35,23 @@ async def _stream(websocket: WebSocket, stock: str, exchange: str, symbol: str) 
         await websocket.send_json({"source": "live", "data": transform_tick(tick)})
 
 
+async def _watch_disconnect(websocket: WebSocket) -> None:
+    """Resolve only when the client actually goes away.
+
+    One subscription per connection, so nothing a client sends after it is
+    meaningful — but "said something unexpected" is not "hung up". Browsers
+    cannot send protocol-level pings at all, so an app-level heartbeat is a
+    web client's only keepalive option and must not kill its own stream.
+    """
+    while True:
+        message = await websocket.receive()
+        if message["type"] == "websocket.disconnect":
+            return
+        await websocket.send_json(
+            {"error": "one subscription per connection; message ignored"}
+        )
+
+
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
@@ -75,7 +92,7 @@ async def websocket_endpoint(websocket: WebSocket):
             return
 
         stream_task = asyncio.create_task(_stream(websocket, stock, exchange, symbol))
-        disconnect_task = asyncio.create_task(websocket.receive())
+        disconnect_task = asyncio.create_task(_watch_disconnect(websocket))
 
         done, pending = await asyncio.wait(
             {stream_task, disconnect_task},
