@@ -58,20 +58,21 @@ async def websocket_endpoint(websocket: WebSocket):
             await websocket.close()
             return
 
-        if not isinstance(msg, dict) or "stock" not in msg:
+        if not isinstance(msg, dict) or not isinstance(msg.get("stock"), str):
             await websocket.send_json({"error": 'expected {"stock": "EXCHANGE:SYMBOL"}'})
             await websocket.close()
             return
 
         stock = msg["stock"]
-        if ":" not in stock:
+        exchange, _, symbol = stock.partition(":")
+        # exchange and symbol are interpolated into a file path, so reject anything
+        # that could climb out of DATA_ROOT
+        if not exchange or not symbol or any(c in stock for c in ("/", "\\", "..")):
             await websocket.send_json(
                 {"error": f"invalid stock format '{stock}', expected EXCHANGE:SYMBOL"}
             )
             await websocket.close()
             return
-
-        exchange, symbol = stock.split(":", 1)
 
         stream_task = asyncio.create_task(_stream(websocket, stock, exchange, symbol))
         disconnect_task = asyncio.create_task(websocket.receive())
