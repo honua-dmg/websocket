@@ -3,6 +3,7 @@ set -euo pipefail
 
 REDIS_CONTAINER="stonks-redis"
 SERVER_CONTAINER="stonks-ws-server"
+NETWORK="stonks-testbench"
 SERVER_PORT="${PORT:-8765}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
@@ -13,12 +14,18 @@ info() { echo "[TESTBENCH] $*"; }
 # ── Check Docker ──────────────────────────────────────────────────────────────
 docker info >/dev/null 2>&1 || die "Docker is not running. Start Docker Desktop and try again."
 
+docker network inspect "$NETWORK" >/dev/null 2>&1 || docker network create "$NETWORK" >/dev/null
+
 # ── Redis ─────────────────────────────────────────────────────────────────────
 if docker ps --format '{{.Names}}' | grep -q "^${REDIS_CONTAINER}$"; then
     info "Redis container already running — skipping."
 else
+    if docker ps -a --format '{{.Names}}' | grep -q "^${REDIS_CONTAINER}$"; then
+        info "Removing stale Redis container..."
+        docker rm -f "$REDIS_CONTAINER" >/dev/null
+    fi
     info "Starting Redis container..."
-    docker run -d --name "$REDIS_CONTAINER" -p 6379:6379 redis:alpine >/dev/null
+    docker run -d --name "$REDIS_CONTAINER" --network "$NETWORK" --network-alias redis -p 6379:6379 redis:alpine >/dev/null
 fi
 
 info "Waiting for Redis to be ready..."
@@ -45,6 +52,7 @@ info "Starting WebSocket server container..."
 mkdir -p "$PROJECT_DIR/data"
 docker run -d \
     --name "$SERVER_CONTAINER" \
+    --network "$NETWORK" \
     --env-file "$PROJECT_DIR/.env.docker" \
     -p "${SERVER_PORT}:${SERVER_PORT}" \
     --add-host=host.docker.internal:host-gateway \
