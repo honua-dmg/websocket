@@ -47,16 +47,21 @@ def load_and_validate_csv(csv_path: str) -> tuple[list[str], list[dict]]:
     return fieldnames, rows
 
 
-def write_history(exchange: str, symbol: str, fieldnames: list[str], rows: list[dict]) -> Path:
+def write_history(
+    exchange: str, symbol: str, fieldnames: list[str], rows: list[dict], stream_offset: str
+) -> Path:
     today = datetime.now(timezone.utc).date().isoformat()
     out_dir = Path(DATA_ROOT) / exchange / symbol
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / f"{today}.csv"
 
+    # every row says where the live stream resumes after it; without that a client
+    # reading this file has to guess, and "guess" means jumping to the tip and
+    # silently dropping everything published in between
     with open(out_path, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
-        writer.writerows(rows)
+        writer.writerows({**row, "stream_offset": stream_offset} for row in rows)
 
     print(f"[FEEDER] Wrote {len(rows)} history rows to {out_path.resolve()}")
     return out_path
@@ -87,6 +92,42 @@ async def connect_redis(redis_url: str, max_attempts: int = 3) -> aioredis.Redis
     return client  # unreachable
 
 
+def _to_raw_tick(row: dict) -> dict:
+    """Reshape a flat CSV row into the nested KiteTicker-style payload transform_tick expects."""
+    tick = {
+        "instrument_token": row.get("stonk"),
+        "last_price": row.get("last_price"),
+        "last_traded_quantity": row.get("last_traded_quantity"),
+        "average_traded_price": row.get("average_traded_price"),
+        "volume_traded": row.get("volume_traded"),
+        "total_buy_quantity": row.get("total_buy_quantity"),
+        "total_sell_quantity": row.get("total_sell_quantity"),
+        "ohlc": {
+            "open": row.get("open"),
+            "high": row.get("high"),
+            "low": row.get("low"),
+            "close": row.get("close"),
+        },
+        "change": row.get("change"),
+        "oi": row.get("oi"),
+        "oi_day_high": row.get("oi_day_high"),
+        "oi_day_low": row.get("oi_day_low"),
+        "depth": {"buy": [], "sell": []},
+    }
+    for i in range(1, 6):
+        tick["depth"]["buy"].append({
+            "price": row.get(f"buy_price_{i}"),
+            "quantity": row.get(f"buy_qty_{i}"),
+            "orders": row.get(f"buy_orders_{i}"),
+        })
+        tick["depth"]["sell"].append({
+            "price": row.get(f"sell_price_{i}"),
+            "quantity": row.get(f"sell_qty_{i}"),
+            "orders": row.get(f"sell_orders_{i}"),
+        })
+    return tick
+
+
 async def stream_to_redis(
     client: aioredis.Redis,
     symbol: str,
@@ -100,19 +141,20 @@ async def stream_to_redis(
     try:
         if history_path is not None:
             with open(history_path, "a", newline="") as f:
-                writer = csv.DictWriter(f, fieldnames=fieldnames)
+                writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
                 for row in rows:
-                    msg_id = await client.xadd(symbol, {"data": json.dumps(row)})
+                    msg_id = await client.xadd(symbol, {"data": json.dumps(_to_raw_tick(row))})
                     row["stream_offset"] = msg_id
                     writer.writerow(row)
+                    f.flush()  # a connecting client must see the offset, not a buffered file
                     sent += 1
                     print(f"[FEEDER] row {sent}/{total} → {symbol} (id={msg_id})")
                     await asyncio.sleep(interval)
         else:
             for row in rows:
-                await client.xadd(symbol, {"data": json.dumps(row)})
+                await client.xadd(symbol, {"data": json.dumps(_to_raw_tick(row))})
                 sent += 1
-                print(f"[FEEDER] row {sent}/{total} → {symbol}")
+                print(f"[FEEDER] row {sent}/{total} → {symbol} ")
                 await asyncio.sleep(interval)
     except KeyboardInterrupt:
         pass
@@ -138,14 +180,20 @@ async def main() -> None:
 
     print(f"[FEEDER] {len(rows)} total rows → {len(history_rows)} history, {len(live_rows)} live")
 
-    history_path = write_history(exchange, symbol, fieldnames, history_rows)
-    print(f"[FEEDER] History written to {history_path}")
-    time.sleep(5)  # give user time to see history output before streaming live
+    # the real producer tags each streamed row with its Redis offset so a connecting
+    # client can resume exactly where the file ends — the column must exist from the start
+    csv_fields = [*fieldnames, "stream_offset"]
     client = await connect_redis(args.redis_url)
+    entries = await client.xrevrange(symbol, count=1)
+    stream_tip = entries[0][0] if entries else "0"
+
+    history_path = write_history(exchange, symbol, csv_fields, history_rows, stream_tip)
+    print(f"[FEEDER] History written to {history_path} (live resumes after {stream_tip})")
+    time.sleep(5)  # give user time to see history output before streaming live
     print(f"[FEEDER] Connected to Redis, streaming {len(live_rows)} rows to '{symbol}'...")
 
     sent = await stream_to_redis(
-        client, symbol, live_rows, args.interval, history_path, fieldnames
+        client, symbol, live_rows, args.interval, history_path, csv_fields
     )
     print(f"[FEEDER] Done — {sent}/{len(live_rows)} rows sent to Redis stream '{symbol}'")
     await client.aclose()
