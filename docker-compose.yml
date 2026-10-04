@@ -1,7 +1,10 @@
 services:
   websocket:
     build: .
-    env_file: .env.docker
+    environment:
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      DATA_ROOT: ${DATA_ROOT:-/data}
+      PORT: ${PORT:-8765}
     ports:
       - "8765:8765"
     volumes:
