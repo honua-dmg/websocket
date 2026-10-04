@@ -4,7 +4,27 @@
       "Skill(brainstorming)",
       "Bash(mkdir *)",
       "Skill(writing-plans)",
-      "Skill(subagent-driven-development)"
+      "Skill(subagent-driven-development)",
+      "Bash(pip install *)",
+      "Bash(pytest --collect-only)",
+      "Bash(echo \"Exit code: $?\")",
+      "Bash(pytest *)",
+      "Bash(/opt/anaconda3/bin/python -m pip list)",
+      "Bash(/opt/anaconda3/bin/python *)",
+      "Bash(touch /Users/gurusai/programming/STONKS/websocket/sim/output/.gitkeep)",
+      "Bash(chmod +x /Users/gurusai/programming/STONKS/websocket/sim/run_testbench.sh)",
+      "Bash(bash -n /Users/gurusai/programming/STONKS/websocket/sim/run_testbench.sh)",
+      "Skill(using-superpowers)",
+      "Skill(finishing-a-development-branch)",
+      "Bash(pip show *)",
+      "Bash(pyenv version *)",
+      "Bash(pyenv which *)",
+      "Bash(/opt/anaconda3/bin/pip show *)",
+      "Bash(/opt/anaconda3/bin/pip install *)",
+      "Bash(export PATH=\"/opt/homebrew/bin:$PATH\")",
+      "Bash(gh --version)",
+      "Bash(gh pr create --title 'feat: testbench, sim tooling, and server hardening' --body ' *)",
+      "Bash(python3 *)"
     ]
   }
 }
