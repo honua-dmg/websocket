@@ -41,6 +41,7 @@ def run_integrity_check(original_path: str, received_rows: list[dict]) -> bool:
 
     mismatches = 0
     for i, (got, expected) in enumerate(zip(received_rows, original_rows)):
+        got = {k: v for k, v in got.items() if k != "stream_offset"}  # bookmark column isn't source data
         if got != expected:
             if mismatches < 5:
                 print(f"[INTEGRITY] FAIL: row {i + 1} mismatch")
@@ -97,20 +98,24 @@ async def run(args: argparse.Namespace) -> None:
 
     output_dir = Path(__file__).parent / "output"
     output_dir.mkdir(exist_ok=True)
-    sample_path = output_dir / f"sample_{symbol}.csv"
+    suffix = f"_{args.label}" if args.label else ""
+    sample_path = output_dir / f"sample_{symbol}{suffix}.csv"
 
     ws = await connect_with_retry(uri, args.timeout)
 
     history_count = 0
     live_count = 0
     received_rows: list[dict] = []
-    fieldnames: list[str] | None = None
-    f = None
-    writer = None
     try:
         await ws.send(json.dumps({"stock": args.stock}))
 
-        async for raw_msg in ws:
+        while True:
+            try:
+                raw_msg = await asyncio.wait_for(ws.recv(), timeout=args.idle_timeout)
+            except asyncio.TimeoutError:
+                print(f"\n[CLIENT] No message for {args.idle_timeout}s — stream finished.")
+                break
+
             msg = json.loads(raw_msg)
 
             if "error" in msg:
@@ -120,38 +125,32 @@ async def run(args: argparse.Namespace) -> None:
             source = msg.get("source")
             data: dict = msg.get("data", {})
 
-            if fieldnames is None and data:
-                fieldnames = list(data.keys())
-                # open file and prepare writer once we know the columns
-                f = open(sample_path, "w", newline="")
-                writer = csv.DictWriter(f, fieldnames=fieldnames)
-                writer.writeheader()
-
             if source == "history":
                 history_count += 1
                 print(f"[HISTORY] {data}")
-                
             elif source == "live":
                 live_count += 1
                 print(f"[LIVE]    {data}")
+            else:
+                print(f"[SERVER]  {msg}")  # subscription ack — not a data row
+                continue
 
             received_rows.append(data)
-            if writer is not None:
-                writer.writerow(data)
-        
+
     except websockets.exceptions.ConnectionClosed:
         pass
     except KeyboardInterrupt:
         pass
     finally:
         await ws.close()
-        if f is not None:
-            f.close()
     print(f"\n[CLIENT] Received {history_count} history rows, {live_count} live ticks")
 
-    if received_rows and fieldnames:
+    if received_rows:
+        # history and live rows carry different schemas (CSV columns vs transform_tick
+        # output) — union the keys instead of trusting the first row's shape.
+        fieldnames = list(dict.fromkeys(k for row in received_rows for k in row))
         with open(sample_path, "w", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer = csv.DictWriter(f, fieldnames=fieldnames, restval="")
             writer.writeheader()
             writer.writerows(received_rows)
         print(f"[CLIENT] Saved to {sample_path}")
@@ -170,6 +169,12 @@ def main() -> None:
     parser.add_argument("--host", default="localhost")
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--timeout", type=int, default=30, help="Seconds to wait for server")
+    parser.add_argument("--label", help="Tag for this client's output file (sample_SYMBOL_LABEL.csv)")
+    parser.add_argument(
+        "--idle-timeout",
+        type=float,
+        help="Stop and report after this many seconds without a message (default: never)",
+    )
     args = parser.parse_args()
 
     if ":" not in args.stock:
